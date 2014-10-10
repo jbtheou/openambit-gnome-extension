@@ -1,0 +1,10 @@
+<schemalist gettext-domain="gnome-shell-extensions">
+  <schema id="org.gnome.shell.extensions.openambit" path="/org/gnome/shell/extensions/openambit/">
+    <key name="movescount-account" type="s">
+      <default>''</default>
+    </key>
+    <key name="userkey" type="s">
+      <default>''</default>
+    </key>
+  </schema>
+</schemalist>
