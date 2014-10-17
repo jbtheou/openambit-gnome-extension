@@ -1,1 +1,1 @@
-{"shell-version": ["3.14.0"], "settings-schema": "org.gnome.shell.extensions.openambit", "uuid": "openambit-extension-jbtheou@gmail.com", "name": "Openambit", "description": "Sync your Suunto Ambit watch"}
+{"shell-version": ["3.14"], "settings-schema": "org.gnome.shell.extensions.openambit", "uuid": "openambit-extension-jbtheou@gmail.com", "name": "Openambit", "description": "Sync your Suunto Ambit watch"}
