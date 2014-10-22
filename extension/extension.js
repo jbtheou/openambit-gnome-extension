@@ -36,6 +36,8 @@ const MOVESCOUNT_USER = MOVESCOUNT_HOST + "/members/private?appkey=" + APPKEY;
 const MOVESCOUNT_GPS = MOVESCOUNT_HOST + "/devices/gpsorbit/binary?appkey=" + APPKEY;
 const AMBIT_DAEMON = "openambit_cli"
 const MOVESCOUNT_CREATE_MOVE = MOVESCOUNT_HOST + "/moves/?appkey=" + APPKEY;
+const BATTERY_TIMEOUT = 60000;
+const MOVESCOUNT_AUTH_TIMEOUT = 2000;
 
 let meta;
 let ambitmanager;
@@ -51,6 +53,8 @@ let device_status;
 let gps_status;
 let log_status;
 let retry_movescount;
+let update_battery_thread;
+let loop_done;
 function AmbitManager(metadata)
 {
 	this._init();
@@ -76,6 +80,7 @@ AmbitManager.prototype =
 			connected = false;
 			initialization = true;
 			retry_movescount = true;
+			loop_done = false;
 			update_icons();
 			initialization = false;
 			this.actor.add_actor(shell_icons);
@@ -97,7 +102,7 @@ AmbitManager.prototype =
 			let client = new GUdev.Client ({subsystems: ["usb/usb_device"]});
 			client.connect ("uevent", this._onuevent);
 			this._lookfordevice(client);
-			this._timeout = Mainloop.timeout_add(2000, getUserInfo);
+			Mainloop.timeout_add(MOVESCOUNT_AUTH_TIMEOUT, getUserInfo);
 	},
 
 	_onuevent: function (client, action, device) {
@@ -162,27 +167,29 @@ function update_icons () {
 
 function update_device (connected) {
 		let [res, out, err, status] = GLib.spawn_command_line_sync(AMBIT_DAEMON + " --settime");
-		update_battery (connected);
 		if (connected ) {
 			[a, firmware, b, c] = GLib.spawn_command_line_sync(AMBIT_DAEMON + " --firmware");
 			[d, model, e, f] = GLib.spawn_command_line_sync(AMBIT_DAEMON + " --model");
 			device_status.label.set_text(model + " " + firmware);
 			update_log();
+			update_battery_thread = Mainloop.timeout_add(BATTERY_TIMEOUT, update_battery);
 		}
 		else {
 			device_status.label.set_text("N/A");
 			log_status.label.set_text("Log: N/A");
 			gps_status.label.set_text("GPS orbit: N/A");
+			Mainloop.source_remove(update_battery_thread);
 		}
 }
 
-function update_battery (connected) {
-		if (connected ) {
+function update_battery (init) {
+		log("Check battery level");
+		if (loop_done == true || init)
+		{
 			let [res, out, err, status] = GLib.spawn_command_line_sync(AMBIT_DAEMON + " --battery");
 			battery_status.label.set_text("Battery: " + out + "%");
 		}
-		else
-			battery_status.label.set_text("Battery: N/A");
+		return true;
 }
 
 function readFile(filename) {
@@ -240,11 +247,14 @@ function read_progress_gps (stream, res) {
 	let [out,size] = stream.read_line_finish(res)
 	if (out != null) {
 		gps_status.label.set_text("GPS orbit: " + out);
+		loop_done = true;
 	}
 }
 
 function update_log () {
 	log_status.label.set_text("Log: In progress");
+	// Before to sync log, check the battery level
+	update_battery(true);
 	let [res, pid, in_fd, out_fd, err_fd] = GLib.spawn_async_with_pipes(null, [AMBIT_DAEMON,'--log'], null, 0, null);
 	let log_output = new Gio.DataInputStream({ base_stream: new Gio.UnixInputStream({fd: out_fd}) });
 	log_output.read_line_async(GLib.PRIORITY_LOW, null, read_progress);
