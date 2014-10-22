@@ -18,6 +18,7 @@ const GUsb = imports.gi.GUsb;
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
 const Convenience = Me.imports.convenience;
+const Mainloop = imports.mainloop;
 const Gio = imports.gi.Gio;
 
 // From: http://findicons.com/icon/437394/watch_alt_inv?id=437394#
@@ -49,7 +50,7 @@ let battery_status;
 let device_status;
 let gps_status;
 let log_status;
-
+let retry_movescount;
 function AmbitManager(metadata)
 {
 	this._init();
@@ -74,12 +75,13 @@ AmbitManager.prototype =
 			connectivity = false;
 			connected = false;
 			initialization = true;
+			retry_movescount = true;
 			update_icons();
 			initialization = false;
 			this.actor.add_actor(shell_icons);
 			this.actor.add_style_class_name('panel-status-button');
 			this.actor.has_tooltip = false;
-			message_status = new PopupMenu.PopupMenuItem(_("Disable"));
+			message_status = new PopupMenu.PopupMenuItem(_("Querying..."));
 			this.menu.addMenuItem(message_status);
 			message_status.connect('activate', showProfile);
 			this.Separator = new PopupMenu.PopupSeparatorMenuItem();
@@ -95,14 +97,13 @@ AmbitManager.prototype =
 			let client = new GUdev.Client ({subsystems: ["usb/usb_device"]});
 			client.connect ("uevent", this._onuevent);
 			this._lookfordevice(client);
-			getUserInfo();
+			this._timeout = Mainloop.timeout_add(2000, getUserInfo);
 	},
 
 	_onuevent: function (client, action, device) {
 		if (device.get_property("ID_VENDOR") == "Suunto") {
 			connected = ( (action == "add") ? true : false);
 			update_icons();
-			getUserInfo();
 			update_device(connected);
 		}
 	},
@@ -120,26 +121,32 @@ AmbitManager.prototype =
 }
 
 function getUserInfo () {
-		var soupSyncSession = new Soup.SessionSync();
+		var soupAsyncSession = new Soup.SessionAsync();
 		var movescount_account = settings.get_string('movescount-account');
 		var userkey = settings.get_string('userkey');
 		var request = Soup.Message.new('GET',MOVESCOUNT_USER+"&userkey="+userkey+"&email="+movescount_account);
-		let responseCode = soupSyncSession.send_message(request);
-		let message;
-		if(responseCode == 200)
-		{
-			var responseBody = request["response-body"];
-			var response = JSON.parse(responseBody.data);
-			message = "Log as: " + response["Username"];
-			connectivity = true;
-		}
-		else if (responseCode == 401)
-		{
-			message = "Access denied";
-			connectivity = false;
-		}
-		update_icons();
-		message_status.label.set_text(message);
+		soupAsyncSession.queue_message(request,
+				function(_httpSession, message) {
+					let ret;
+					log("Received : " + message.status_code);
+					if(message.status_code == 200)
+					{
+						var responseBody = message["response-body"];
+						var response = JSON.parse(responseBody.data);
+						ret = "Log as: " + response["Username"];
+						connectivity = true;
+						retry_movescount = false;
+					}
+					else if (message.status_code == 401)
+					{
+						ret = "Access denied";
+						connectivity = false;
+					}
+					
+					update_icons();
+					message_status.label.set_text(ret);
+				});
+		return retry_movescount;
 }
 
 function update_icons () {
